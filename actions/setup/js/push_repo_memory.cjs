@@ -715,8 +715,16 @@ async function main() {
   // pushes to the correct repository.
   execGitSync(["remote", "set-url", "origin", `https://${serverHost}/${targetRepo}.git`], { stdio: "pipe" });
 
-  const MAX_RETRIES = 3;
+  // Concurrent runs converge on the shared branch optimistically: createCommitOnBranch is a
+  // compare-and-swap on expectedHeadOid, so every writer that lost a race retries after
+  // re-syncing with the remote head. The push_repo_memory job deliberately has no job-level
+  // concurrency group (GitHub keeps only one pending job per group and cancels the others,
+  // which lost memory under fan-out), so this loop must absorb N concurrent writers on its own.
+  // Full-jitter exponential backoff (AWS Architecture Blog, "Exponential Backoff And Jitter")
+  // spreads retries so synchronized losers do not collide again on the next attempt.
+  const MAX_RETRIES = 10;
   const BASE_DELAY_MS = 1000;
+  const MAX_DELAY_MS = 20000;
   let currentBaseRef = baseRef;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -736,7 +744,8 @@ async function main() {
     } catch (error) {
       const errMsg = getErrorMessage(error);
       if (attempt < MAX_RETRIES) {
-        const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+        const ceiling = Math.min(MAX_DELAY_MS, BASE_DELAY_MS * Math.pow(2, attempt));
+        const delay = Math.floor(Math.random() * ceiling) + 1;
         core.warning(`Push failed (attempt ${attempt + 1}/${MAX_RETRIES + 1}), retrying in ${delay}ms: ${errMsg}`);
         await new Promise(resolve => setTimeout(resolve, delay));
 

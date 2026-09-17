@@ -107,7 +107,8 @@ For fast 7-day caching without version control, see [Cache Memory](/gh-aw/refere
 - **Branch not created**: Ensure `create-orphan: true` is enabled, or create the branch manually.
 - **Validation or patch-size failures**: Keep changes within `file-glob`, `max-file-size` (100KB default), `max-file-count` (100 default), and `max-patch-size` (10KB default).
 - **Changes not persisting**: Confirm the directory path, let the workflow finish, and check the logs for push errors.
-- **Merge conflicts**: Concurrent pushes are replayed onto the latest remote state, so your file changes win.
+- **Merge conflicts**: Concurrent pushes are replayed onto the latest remote state, so your file changes win. Conflicting `.jsonl` files are merged with `merge=union`, keeping rows from both sides.
+- **Many runs finishing at once** (for example an orchestrator that dispatches dozens of workers writing to one branch): each `push_repo_memory` job pushes optimistically and retries up to 10 times with jittered exponential backoff (at most 20 s per wait), re-syncing with the remote head before every retry. The job is intentionally not serialized through a concurrency group, because GitHub Actions keeps only one pending job per group and cancels the rest, which would drop those runs' memory. Give each writer its own file (for example one log per worker and target) so concurrent pushes never touch the same file.
 - **GH013 — Commits must have verified signatures**: This usually means the artifact included a symlink, executable file, or submodule entry, which forced a fallback to plain `git push`. Remove the unsupported file type and re-run.
 
 ## Security
