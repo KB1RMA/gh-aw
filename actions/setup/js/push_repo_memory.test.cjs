@@ -1902,6 +1902,22 @@ describe("push_repo_memory.cjs - signed commit push (pushSignedCommits delegatio
       expect(scriptContent).toContain("BASE_DELAY_MS * Math.pow(2, attempt)");
     });
 
+    it("should absorb fan-out contention with many jittered, capped retries (regression guard)", () => {
+      const nodeFs = require("fs");
+      const nodePath = require("path");
+      const scriptPath = nodePath.join(import.meta.dirname, "push_repo_memory.cjs");
+      const scriptContent = nodeFs.readFileSync(scriptPath, "utf8");
+
+      // Dozens of workers can finish within the same minute and race on one memory branch;
+      // three attempts were not enough once the job-level concurrency group was removed.
+      const maxRetries = Number(/const MAX_RETRIES = (\d+);/.exec(scriptContent)?.[1]);
+      expect(maxRetries).toBeGreaterThanOrEqual(10);
+      // Full jitter: the delay is drawn uniformly below an exponentially growing, capped ceiling.
+      expect(scriptContent).toContain("const MAX_DELAY_MS");
+      expect(scriptContent).toContain("Math.min(MAX_DELAY_MS, BASE_DELAY_MS * Math.pow(2, attempt))");
+      expect(scriptContent).toContain("Math.random() * ceiling");
+    });
+
     it("should surface a clear GH013 error message when signed-commit push is rejected (regression guard)", () => {
       const nodeFs = require("fs");
       const nodePath = require("path");
